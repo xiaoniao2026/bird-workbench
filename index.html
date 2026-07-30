@@ -151,9 +151,9 @@ input,textarea,select,button{font-family:inherit;color:inherit;}
 /* ============ 卡片 ============ */
 .card{
   background:var(--card);border-radius:20px;padding:18px;
-  box-shadow:var(--shadow);margin-bottom:14px;
-  border:1px solid var(--border);
-  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  box-shadow:var(--card-shadow, var(--shadow));margin-bottom:14px;
+  border:1px solid var(--card-border, var(--border));
+  backdrop-filter:blur(var(--card-blur, 8px));-webkit-backdrop-filter:blur(var(--card-blur, 8px));
 }
 .card h3{font-size:17px;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
 .card h3 .badge{font-size:11px;background:var(--accent);color:#fff;padding:2px 8px;border-radius:10px;font-weight:400;}
@@ -800,10 +800,10 @@ const FONTS = [
 const FEED_ITEMS = [
   {key:'母乳',  ico:'🤱', nm:'母乳'},
   {key:'配方奶', ico:'🍼', nm:'配方奶', input:'ml'},
-  {key:'洗澡',  ico:'🛁', nm:'洗澡'},
+  {key:'洗澡',  ico:'🛁', nm:'洗澡', range:true},
   {key:'补剂',  ico:'💊', nm:'补剂', multi:['AD','铁','钙','锌','益生菌']},
-  {key:'睡眠',  ico:'😴', nm:'睡眠'},
-  {key:'游泳',  ico:'🏊', nm:'游泳'},
+  {key:'睡眠',  ico:'😴', nm:'睡眠', range:true},
+  {key:'游泳',  ico:'🏊', nm:'游泳', range:true},
   {key:'喝水',  ico:'💧', nm:'喝水'},
   {key:'吸奶',  ico:'🥛', nm:'吸奶', input:'ml'},
   {key:'辅食',  ico:'🥣', nm:'辅食', multi:['米粉','米汤','蛋黄','蔬菜泥','果泥','肉泥','鱼泥','烂面条','米粥','磨牙棒','溶豆','其他'], qty:true},
@@ -1045,7 +1045,7 @@ function handleBgUpload(e){
     applyBgImage();
     // 上传背景图后自动降低板块透明度，让背景图清晰可见
     if(!DB.get('cardAlphaManuallySet', false)){
-      DB.set('cardAlpha', 0.25);
+      DB.set('cardAlpha', 0.08);
       applyCardAlpha();
     }
     toast('背景图片已设置，下方可调节 🖼️');
@@ -1076,10 +1076,16 @@ function setBgOpacity(v){
 function applyCardAlpha(){
   const a = DB.get('cardAlpha', 0.72);
   document.documentElement.style.setProperty('--card-alpha', a);
-  // 根据 theme 的卡片色合成带 alpha 的 card 颜色
   const isDark = document.body.dataset.theme==='black';
   const base = isDark ? [60,60,66] : [255,255,255];
   document.documentElement.style.setProperty('--card', `rgba(${base[0]},${base[1]},${base[2]},${a})`);
+  // 透明度越低，blur/shadow/border 越弱，让背景图透过卡片
+  const blurPx = Math.round(a * 8);                    // 0~8px
+  const shadowAlpha = Math.round(a * 18);              // 0~18
+  const borderAlpha = Math.max(a * 0.6, 0.05);         // 最低保留一点边缘
+  document.documentElement.style.setProperty('--card-blur', blurPx + 'px');
+  document.documentElement.style.setProperty('--card-shadow', `0 8px 28px rgba(${isDark?'0,0,0':'180,80,80'},${shadowAlpha/100})`);
+  document.documentElement.style.setProperty('--card-border', `rgba(${isDark?'255,255,255':'255,255,255'},${borderAlpha})`);
   const pct = Math.round(a*100);
   const t = document.getElementById('cardAlphaTxt'); if(t) t.textContent = pct + '%';
   const r = document.getElementById('cardAlphaRange'); if(r) r.value = pct;
@@ -1135,8 +1141,7 @@ function updateFab(){
 }
 function openAddPanel(){
   if(currentPage==='feed'){
-    // 喂养页的+默认打开配方奶
-    openFeedPanel(FEED_ITEMS[1]);
+    openFeedPicker();
   } else if(currentPage==='sport'){
     openAddSportPanel();
   } else if(currentPage==='finance'){
@@ -1147,6 +1152,25 @@ function openAddPanel(){
   } else if(currentPage==='anniversary'){
     openAnniversaryPanel();
   }
+}
+function openFeedPicker(){
+  document.getElementById('addPanelContent').innerHTML = `
+    <h4>🍼 选择记录类型</h4>
+    <div class="sup-grid" style="grid-template-columns:repeat(3,1fr);">
+      ${FEED_ITEMS.map(f=>`<div class="sup-opt" style="padding:14px 6px;" onclick="pickFeedType('${f.key}')">
+        <div style="font-size:24px;">${f.ico}</div>
+        <div style="font-size:13px;margin-top:4px;">${f.nm}</div>
+      </div>`).join('')}
+    </div>
+    <div class="panel-actions">
+      <button class="btn btn-ghost" onclick="closeAddPanel()">取消</button>
+    </div>`;
+  document.getElementById('addPanel').classList.add('open');
+  document.getElementById('overlay3').classList.add('open');
+}
+function pickFeedType(key){
+  closeAddPanel();
+  setTimeout(()=>onFeedClick(key), 200);
 }
 
 /* ============ 喂养记录 ============ */
@@ -1180,10 +1204,11 @@ function renderFeed(){
     document.getElementById('feedLog').innerHTML = logs.slice().reverse().slice(0,50).map(l=>{
       const d = new Date(l.ts);
       const tag = l.qty ? `${l.qty}${l.unit||''}` : (l.note||'');
+      const timeStr = l.end ? fmtRange(l.ts, l.end) : `${fmtDate(d)} ${fmtTime(d)}`;
       return `<div class="log-row">
         <span class="tag">${l.type}</span>
         <span>${tag}</span>
-        <span class="time">${fmtDate(d)} ${fmtTime(d)}</span>
+        <span class="time">${timeStr}</span>
         <span class="del" onclick="delFeed(${l.id})">✕</span>
       </div>`;
     }).join('');
@@ -1192,12 +1217,39 @@ function renderFeed(){
 
 function onFeedClick(key){
   const f = FEED_ITEMS.find(x=>x.key===key);
-  if(f.input || f.multi){
+  if(f.range){
+    openRangeFeedPanel(f);
+  } else if(f.input || f.multi){
     openFeedPanel(f);
   } else {
     // 弹出时间选择面板
     openQuickFeedPanel(f);
   }
+}
+function openRangeFeedPanel(f){
+  document.getElementById('addPanelContent').innerHTML = `
+    <h4>${f.ico} ${f.nm}</h4>
+    ${rangePickerHtml()}
+    <div class="panel-actions">
+      <button class="btn btn-ghost" onclick="closeAddPanel()">取消</button>
+      <button class="btn btn-primary" onclick="saveRangeFeed('${f.key}')">保存</button>
+    </div>`;
+  document.getElementById('addPanel').classList.add('open');
+  document.getElementById('overlay3').classList.add('open');
+  // 绑定时长更新
+  document.getElementById('rangeStart').addEventListener('change', updateRangeDuration);
+  document.getElementById('rangeEnd').addEventListener('change', updateRangeDuration);
+}
+function saveRangeFeed(key){
+  const f = FEED_ITEMS.find(x=>x.key===key);
+  const {start,end,duration} = getRangeTimes();
+  if(duration<=0){ toast('结束时间需晚于开始时间'); return; }
+  const logs = DB.get('feedLogs',[]);
+  logs.push({id:Date.now(),type:f.nm,ts:start,end:end,duration:duration});
+  DB.set('feedLogs',logs);
+  closeAddPanel();
+  toast(`已记录 ${f.nm} ✅`);
+  renderFeed();
 }
 function openQuickFeedPanel(f){
   document.getElementById('addPanelContent').innerHTML = `
@@ -1463,10 +1515,10 @@ function renderSport(){
     const allSports = SPORTS.concat(DB.get('customSports', []));
     document.getElementById('sportLog').innerHTML = logs.slice().reverse().slice(0,30).map(l=>{
       const s = allSports.find(x=>x.key===l.type) || {ico:'⭐'};
+      const timeStr = l.end ? fmtRange(l.ts, l.end) : `${fmtDate(new Date(l.ts))} ${fmtTime(new Date(l.ts))}`;
       return `<div class="log-row">
         <span class="tag">${s.ico} ${l.type}</span>
-        <span>${l.duration||''} ${l.duration?'分钟':''}</span>
-        <span class="time">${fmtDate(new Date(l.ts))} ${fmtTime(new Date(l.ts))}</span>
+        <span class="time" style="margin-left:auto;">${timeStr}</span>
         <span class="del" onclick="delSport(${l.id})">✕</span>
       </div>`;
     }).join('');
@@ -1475,21 +1527,18 @@ function renderSport(){
 function addSport(key){
   const allSports = SPORTS.concat(DB.get('customSports', []));
   const s = allSports.find(x=>x.key===key) || {ico:'⭐', key:key};
-  // 弹出输入时长
+  // 弹出时间段选择
   document.getElementById('addPanelContent').innerHTML = `
     <h4>${s.ico} ${s.key}</h4>
-    <div class="row"><input type="number" id="sportDur" placeholder="运动时长（分钟）" autofocus>
-      <span style="color:var(--fg-soft)">分钟</span></div>
-    <div class="qty-row">
-      ${[15,20,30,40,45,60,90].map(q=>`<div class="qty-btn" onclick="document.getElementById('sportDur').value=${q}">${q}分钟</div>`).join('')}
-    </div>
-    ${timePickerHtml()}
+    ${rangePickerHtml()}
     <div class="panel-actions">
       <button class="btn btn-ghost" onclick="closeAddPanel()">取消</button>
       <button class="btn btn-primary" onclick="saveSport('${key.replace(/'/g,"\\'")}')">保存</button>
     </div>`;
   document.getElementById('addPanel').classList.add('open');
   document.getElementById('overlay3').classList.add('open');
+  document.getElementById('rangeStart').addEventListener('change', updateRangeDuration);
+  document.getElementById('rangeEnd').addEventListener('change', updateRangeDuration);
 }
 function openAddSportPanel(){
   const emojis = ['⭐','🏃','🚴','🧘','🏋️','💃','🏊','🏸','🤸','⚽','🏀','🎾','🏐','🥏','🏌️','🏇','🤽','🤾','🧗','🚣','🧘','🤺','⛹️','🚶','🏃‍♂️','🚵','🏋️‍♂️','🤹','🎯','🎳','⛳','⛸️','🎿','🛹','🛷'];
@@ -1526,10 +1575,10 @@ function delCustomSport(key){
   renderSport();
 }
 function saveSport(key){
-  const dur = parseInt(document.getElementById('sportDur').value)||0;
-  const ts = getPickerTime();
+  const {start,end,duration} = getRangeTimes();
+  if(duration<=0){ toast('结束时间需晚于开始时间'); return; }
   const logs = DB.get('sportLogs',[]);
-  logs.push({id:Date.now(),type:key,ts,duration:dur});
+  logs.push({id:Date.now(),type:key,ts:start,end:end,duration:duration});
   DB.set('sportLogs',logs);
   closeAddPanel();
   toast(`已记录 ${key} ✅`);
@@ -1922,6 +1971,52 @@ function getPickerTime(){
   const v = document.getElementById('recordTime');
   if(!v || !v.value) return Date.now();
   return new Date(v.value).getTime();
+}
+/* ---- 时间段选择器（开始～结束）---- */
+function rangePickerHtml(){
+  const now = new Date();
+  const localNow = new Date(now.getTime() - now.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  // 默认开始时间设为1小时前
+  const start = new Date(now.getTime() - 60*60*1000);
+  const localStart = new Date(start.getTime() - start.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  return `<div style="font-size:13px;color:var(--fg-soft);margin:10px 0 6px;">⏰ 时间段（可修改补录）</div>
+    <div class="row" style="gap:6px;">
+      <input type="datetime-local" id="rangeStart" value="${localStart}" style="flex:1;">
+      <span style="color:var(--fg-soft);font-size:14px;">～</span>
+      <input type="datetime-local" id="rangeEnd" value="${localNow}" style="flex:1;">
+    </div>
+    <div id="rangeDuration" style="font-size:13px;color:var(--accent);margin-top:6px;text-align:center;">时长：1小时0分钟</div>`;
+}
+function updateRangeDuration(){
+  const s = document.getElementById('rangeStart');
+  const e = document.getElementById('rangeEnd');
+  const d = document.getElementById('rangeDuration');
+  if(!s||!e||!d) return;
+  const diff = new Date(e.value).getTime() - new Date(s.value).getTime();
+  if(diff < 0){ d.textContent = '⚠️ 结束时间需晚于开始时间'; d.style.color='#e85858'; return; }
+  const h = Math.floor(diff/3600000);
+  const m = Math.floor((diff%3600000)/60000);
+  d.textContent = `时长：${h>0?h+'小时':''}${m}分钟`;
+  d.style.color = 'var(--accent)';
+}
+function getRangeTimes(){
+  const s = document.getElementById('rangeStart');
+  const e = document.getElementById('rangeEnd');
+  if(!s||!s.value||!e||!e.value) return {start:Date.now(),end:Date.now(),duration:0};
+  const start = new Date(s.value).getTime();
+  const end = new Date(e.value).getTime();
+  const duration = Math.max(0, Math.round((end-start)/60000)); // 分钟
+  return {start, end, duration};
+}
+function fmtRange(start, end){
+  const s = new Date(start), e = new Date(end);
+  const sameDay = s.toDateString()===e.toDateString();
+  const dur = Math.max(0, Math.round((end-start)/60000));
+  const h = Math.floor(dur/60);
+  const m = dur%60;
+  const durStr = h>0 ? `${h}小时${m>0?m+'分钟':''}` : `${m}分钟`;
+  if(sameDay) return `${fmtDate(s)} ${fmtTime(s)}～${fmtTime(e)}（${durStr}）`;
+  return `${fmtDate(s)} ${fmtTime(s)}～${fmtDate(e)} ${fmtTime(e)}（${durStr}）`;
 }
 
 function emptyState(ico,txt){ return `<div class="empty"><span class="ico">${ico}</span><div class="txt">${txt}</div></div>`; }
