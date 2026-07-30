@@ -1043,6 +1043,11 @@ function handleBgUpload(e){
     const data = { url: ev.target.result, opacity: old && old.opacity!=null ? old.opacity : 0.7 };
     try{ localStorage.setItem('zb_bgImage', JSON.stringify(data)); }catch(err){ toast('存储空间不足，请换小图'); return; }
     applyBgImage();
+    // 上传背景图后自动降低板块透明度，让背景图清晰可见
+    if(!DB.get('cardAlphaManuallySet', false)){
+      DB.set('cardAlpha', 0.25);
+      applyCardAlpha();
+    }
     toast('背景图片已设置，下方可调节 🖼️');
   };
   reader.readAsDataURL(file);
@@ -1051,6 +1056,11 @@ function handleBgUpload(e){
 function clearBgImage(){
   if(!confirm('清除自定义背景图片？')) return;
   localStorage.removeItem('zb_bgImage');
+  // 清除背景图后恢复默认板块透明度
+  if(!DB.get('cardAlphaManuallySet', false)){
+    DB.set('cardAlpha', 0.72);
+    applyCardAlpha();
+  }
   applyBgImage();
   toast('已恢复纯色背景');
 }
@@ -1077,6 +1087,7 @@ function applyCardAlpha(){
 function setCardAlpha(v){
   const a = (+v)/100;
   DB.set('cardAlpha', a);
+  DB.set('cardAlphaManuallySet', true);
   applyCardAlpha();
 }
 function renderFontGrid(){
@@ -1767,7 +1778,7 @@ function renderAnniversary(){
           <span class="anni-type-tag">${a.type==='forward'?'正数 · 已过':'倒数 · 倒计时'}</span>
         </div>
         <div class="anni-actions">
-          <button onclick="editAnniversary('${a.id}')" title="编辑">✏️</button>
+          <button onclick="openAnniversaryPanel('${a.id}')" title="编辑">✏️</button>
           <button onclick="delAnniversary('${a.id}')" title="删除">🗑️</button>
         </div>
       </div>
