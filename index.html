@@ -1172,7 +1172,7 @@ function renderFeed(){
       return `<div class="log-row">
         <span class="tag">${l.type}</span>
         <span>${tag}</span>
-        <span class="time">${fmtTime(d)}</span>
+        <span class="time">${fmtDate(d)} ${fmtTime(d)}</span>
         <span class="del" onclick="delFeed(${l.id})">✕</span>
       </div>`;
     }).join('');
@@ -1184,13 +1184,30 @@ function onFeedClick(key){
   if(f.input || f.multi){
     openFeedPanel(f);
   } else {
-    // 直接记录
-    const logs = DB.get('feedLogs',[]);
-    logs.push({id:Date.now(),type:f.nm,ts:Date.now()});
-    DB.set('feedLogs',logs);
-    toast(`已记录 ${f.nm} ✅`);
-    renderFeed();
+    // 弹出时间选择面板
+    openQuickFeedPanel(f);
   }
+}
+function openQuickFeedPanel(f){
+  document.getElementById('addPanelContent').innerHTML = `
+    <h4>${f.ico} ${f.nm}</h4>
+    ${timePickerHtml()}
+    <div class="panel-actions">
+      <button class="btn btn-ghost" onclick="closeAddPanel()">取消</button>
+      <button class="btn btn-primary" onclick="saveQuickFeed('${f.key}')">保存</button>
+    </div>`;
+  document.getElementById('addPanel').classList.add('open');
+  document.getElementById('overlay3').classList.add('open');
+}
+function saveQuickFeed(key){
+  const f = FEED_ITEMS.find(x=>x.key===key);
+  const ts = getPickerTime();
+  const logs = DB.get('feedLogs',[]);
+  logs.push({id:Date.now(),type:f.nm,ts});
+  DB.set('feedLogs',logs);
+  closeAddPanel();
+  toast(`已记录 ${f.nm} ✅`);
+  renderFeed();
 }
 
 function openFeedPanel(f){
@@ -1216,6 +1233,7 @@ function openFeedPanel(f){
         ${[10,20,30,50,80,100,120,150].map(q=>`<div class="qty-btn" onclick="document.getElementById('feedGrams').value=${q}">${q}g</div>`).join('')}
       </div>`;
   }
+  html += timePickerHtml();
   html += `<div class="panel-actions">
     <button class="btn btn-ghost" onclick="closeAddPanel()">取消</button>
     <button class="btn btn-primary" onclick="saveFeed('${f.key}')">保存</button>
@@ -1228,7 +1246,8 @@ function setQty(q){ document.getElementById('feedQty').value = q; }
 function saveFeed(key){
   const f = FEED_ITEMS.find(x=>x.key===key);
   const logs = DB.get('feedLogs',[]);
-  let entry = {id:Date.now(),type:f.nm,ts:Date.now()};
+  const ts = getPickerTime();
+  let entry = {id:Date.now(),type:f.nm,ts};
   if(f.input==='ml'){
     const q = parseInt(document.getElementById('feedQty').value);
     if(!q){ toast('请输入毫升数'); return; }
@@ -1436,7 +1455,7 @@ function renderSport(){
       return `<div class="log-row">
         <span class="tag">${s.ico} ${l.type}</span>
         <span>${l.duration||''} ${l.duration?'分钟':''}</span>
-        <span class="time">${fmtTime(new Date(l.ts))}</span>
+        <span class="time">${fmtDate(new Date(l.ts))} ${fmtTime(new Date(l.ts))}</span>
         <span class="del" onclick="delSport(${l.id})">✕</span>
       </div>`;
     }).join('');
@@ -1453,6 +1472,7 @@ function addSport(key){
     <div class="qty-row">
       ${[15,20,30,40,45,60,90].map(q=>`<div class="qty-btn" onclick="document.getElementById('sportDur').value=${q}">${q}分钟</div>`).join('')}
     </div>
+    ${timePickerHtml()}
     <div class="panel-actions">
       <button class="btn btn-ghost" onclick="closeAddPanel()">取消</button>
       <button class="btn btn-primary" onclick="saveSport('${key.replace(/'/g,"\\'")}')">保存</button>
@@ -1496,8 +1516,9 @@ function delCustomSport(key){
 }
 function saveSport(key){
   const dur = parseInt(document.getElementById('sportDur').value)||0;
+  const ts = getPickerTime();
   const logs = DB.get('sportLogs',[]);
-  logs.push({id:Date.now(),type:key,ts:Date.now(),duration:dur});
+  logs.push({id:Date.now(),type:key,ts,duration:dur});
   DB.set('sportLogs',logs);
   closeAddPanel();
   toast(`已记录 ${key} ✅`);
@@ -1559,6 +1580,7 @@ function openTxnPanel(){
     <div class="row"><input type="number" id="txnAmt" placeholder="金额" autofocus></div>
     <div class="row"><input type="text" id="txnNote" placeholder="备注（可选）"></div>
     <div class="sup-grid" id="txnCats">${cats.map((c,i)=>`<div class="sup-opt ${i===0?'on':''}" onclick="pickCat(this)">${c}</div>`).join('')}</div>
+    ${timePickerHtml()}
     <div class="panel-actions">
       <button class="btn btn-ghost" onclick="closeAddPanel()">取消</button>
       <button class="btn btn-primary" onclick="saveTxn()">保存</button>
@@ -1574,8 +1596,9 @@ function saveTxn(){
   const amt = parseFloat(document.getElementById('txnAmt').value);
   if(!amt){ toast('请输入金额'); return; }
   const note = document.getElementById('txnNote').value;
+  const ts = getPickerTime();
   const logs = DB.get('txnLogs',[]);
-  logs.push({id:Date.now(),kind:txnKind,amt,cat:txnKind==='out'?txnCat:undefined,note,ts:Date.now()});
+  logs.push({id:Date.now(),kind:txnKind,amt,cat:txnKind==='out'?txnCat:undefined,note,ts});
   DB.set('txnLogs',logs);
   closeAddPanel();
   toast(`已记录 ${txnKind==='in'?'收入':'支出'} ✅`);
@@ -1877,6 +1900,19 @@ function closeAddPanel(){
 }
 
 /* ============ 工具函数 ============ */
+/* ---- 时间选择器 ---- */
+function timePickerHtml(){
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  return `<div style="font-size:13px;color:var(--fg-soft);margin:10px 0 6px;">⏰ 记录时间（可修改补录）</div>
+    <div class="row"><input type="datetime-local" id="recordTime" value="${local}" style="flex:1;"></div>`;
+}
+function getPickerTime(){
+  const v = document.getElementById('recordTime');
+  if(!v || !v.value) return Date.now();
+  return new Date(v.value).getTime();
+}
+
 function emptyState(ico,txt){ return `<div class="empty"><span class="ico">${ico}</span><div class="txt">${txt}</div></div>`; }
 function fmtTime(d){ return `${pad(d.getHours())}:${pad(d.getMinutes())}`; }
 function fmtDate(d){ return `${d.getMonth()+1}月${d.getDate()}日`; }
