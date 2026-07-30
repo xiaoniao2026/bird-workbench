@@ -1349,21 +1349,61 @@ function renderMilestones(){
   document.getElementById('milestoneList').innerHTML = MILESTONES.map(m=>{
     const d = data[m.key];
     const isDone = !!d;
-    return `<div class="milestone ${isDone?'done':''}" onclick="toggleMilestone('${m.key}')">
+    return `<div class="milestone ${isDone?'done':''}" onclick="onMilestoneClick('${m.key}')">
       <div class="emo">${m.emo}</div>
       <div class="info">
         <div class="name">${m.nm}</div>
-        <div class="date">${isDone?'📅 '+fmtDate(new Date(d)):'点击标记为已掌握'}</div>
+        <div class="date">${isDone?'📅 '+fmtFullDateShort(new Date(d)):'点击标记为已掌握'}</div>
       </div>
       <div class="check">${isDone?'✓':''}</div>
     </div>`;
   }).join('');
 }
-function toggleMilestone(key){
+function onMilestoneClick(key){
   const data = DB.get('milestones',{});
-  if(data[key]){ delete data[key]; toast('已取消标记'); }
-  else { data[key] = Date.now(); toast('恭喜宝宝又解锁新技能 🎉'); }
+  if(data[key]){
+    // 已标记，弹出日期修改面板
+    openMilestoneDatePanel(key, data[key]);
+  } else {
+    // 未标记，弹出日期选择面板（默认今天）
+    openMilestoneDatePanel(key, null);
+  }
+}
+function openMilestoneDatePanel(key, ts){
+  const m = MILESTONES.find(x=>x.key===key);
+  const defaultDate = ts ? new Date(ts) : new Date();
+  const localDate = new Date(defaultDate.getTime() - defaultDate.getTimezoneOffset()*60000).toISOString().slice(0,10);
+  document.getElementById('addPanelContent').innerHTML = `
+    <h4>${m.emo} ${m.nm}</h4>
+    <div style="font-size:13px;color:var(--fg-soft);margin:10px 0 6px;">📅 选择日期</div>
+    <div class="row"><input type="date" id="milestoneDate" value="${localDate}" style="flex:1;"></div>
+    <div class="panel-actions" style="margin-top:14px;">
+      ${ts?'<button class="btn btn-ghost" style="color:#e85858;" onclick="delMilestone(\''+key+'\')">取消标记</button>':''}
+      <button class="btn btn-ghost" onclick="closeAddPanel()">关闭</button>
+      <button class="btn btn-primary" onclick="saveMilestoneDate('${key}')">保存</button>
+    </div>`;
+  document.getElementById('addPanel').classList.add('open');
+  document.getElementById('overlay3').classList.add('open');
+}
+function saveMilestoneDate(key){
+  const dateVal = document.getElementById('milestoneDate').value;
+  if(!dateVal){ toast('请选择日期'); return; }
+  const ts = new Date(dateVal+'T12:00:00').getTime();
+  const data = DB.get('milestones',{});
+  const wasSet = !!data[key];
+  data[key] = ts;
   DB.set('milestones',data);
+  closeAddPanel();
+  toast(wasSet?'日期已更新 ✅':'恭喜宝宝又解锁新技能 🎉');
+  renderMilestones();
+}
+function delMilestone(key){
+  if(!confirm('取消这个里程碑标记？')) return;
+  const data = DB.get('milestones',{});
+  delete data[key];
+  DB.set('milestones',data);
+  closeAddPanel();
+  toast('已取消标记');
   renderMilestones();
 }
 
@@ -2023,6 +2063,7 @@ function emptyState(ico,txt){ return `<div class="empty"><span class="ico">${ico
 function fmtTime(d){ return `${pad(d.getHours())}:${pad(d.getMinutes())}`; }
 function fmtDate(d){ return `${d.getMonth()+1}月${d.getDate()}日`; }
 function fmtFullDate(d){ return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+function fmtFullDateShort(d){ return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`; }
 function pad(n){ return n<10?'0'+n:n; }
 function sameDay(a,b){ return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate(); }
 let toastTimer;
